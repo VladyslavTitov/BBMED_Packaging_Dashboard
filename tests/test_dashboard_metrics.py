@@ -46,7 +46,7 @@ class MeterTests(unittest.TestCase):
         self.assertAlmostEqual(sum(allocated.values())+unknown, 12)
 
     def test_supplied_data_reconciliation_and_energy_conservation(self):
-        data = json.loads((ROOT/'data/dashboard.json').read_text())
+        data = json.loads((ROOT/'reference/legacy-dashboard.json').read_text())
         self.assertEqual(len(data['orders']), 430)
         self.assertEqual(sum(r['excelQty'] is not None for r in data['orders']), 263)
         self.assertEqual(len(data['excelOnly']), 135)

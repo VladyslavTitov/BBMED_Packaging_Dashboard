@@ -1,0 +1,9 @@
+source-data/
+reference/
+scripts/
+tests/
+.agents/
+.codex/
+__pycache__/
+README.md
+DATA_PROVENANCE.md

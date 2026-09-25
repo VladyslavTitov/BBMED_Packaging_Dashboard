@@ -1,28 +1,49 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <meta name="description" content="BBMED packaging operations dashboard based on supplied cleaned production data."/>
-  <title>BBMED Packaging Operations Intelligence</title>
-  <link rel="stylesheet" href="styles.css"/>
-</head>
-<body>
-  <main class="app">
-    <div class="top">
-      <div class="brand">
-        <h1>BBMED Packaging Operations Intelligence</h1>
-        <p>Production, stoppage, staffing, MES↔Excel reconciliation and KM1 energy pilot. All displayed metrics are calculated from the supplied cleaned Excel workbooks; no illustrative order data is used.</p>
-      </div>
-      <div class="badges" id="badges"></div>
-    </div>
-    <div class="guardrail"><span class="dot"></span><div><b>Interpretation guardrail:</b> Energy is a 3.49-hour KM1 pilot and the meter unit is not documented, so the dashboard deliberately avoids claiming kWh, annual savings, or product-level energy ranking. OEE is shown as a proxy because reject/quality coverage is incomplete.</div></div>
-    <nav class="tabs" id="tabs" aria-label="Dashboard sections"></nav>
-    <div class="filters-shell"><div class="filters" id="filters"></div></div>
-    <div id="view"><div class="panel"><div class="empty">Loading dashboard data…</div></div></div>
-    <div class="footer"><span>BBMED Production Data Challenge · deployable Vercel static dashboard</span><span id="generated"></span></div>
-  </main>
-<script src="analytics.js" defer></script>
-<script src="app.js" defer></script>
-</body>
-</html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><meta name="description" content="BBMED production reliability, capacity, energy and processing-cost insight dashboard."><title>BBMED Packaging Operations - Final Insight Dashboard</title>
+<link rel="stylesheet" href="styles.css"></head><body><div class="shell">
+<div id="loadStatus" class="callout" role="status">Loading dashboard data…</div>
+<header><div class="brand"><h1>BBMED Packaging Operations - Final Insight Dashboard</h1><div class="sub">Two business dashboards + one calculation/validation page. Operations filters select whole orders. Energy charts distinguish daily line scope from allocated-order scope; cost inputs are explicitly scenario parameters.</div></div><div><span class="tag">MES <b>2026</b></span><span class="tag">Excel <b>2026</b></span><span class="tag">Energy <b id="energySourceRows">Loading…</b></span><span class="tag">KM1 <b>kWh (supplied dataset)</b></span></div></header>
+<nav class="tabs" aria-label="Dashboard sections"><button class="tab active" data-tab="ops">1 · Operations & Data Reliability</button><button class="tab" data-tab="energy">2 · Energy & Processing Cost</button><button class="tab" data-tab="calc">3 · Calculation, Validation & Model</button></nav>
+<section id="ops" class="view active">
+<div class="filters-wrap"><div class="filters">
+<div class="filter"><label for="oMachine">Machine / line</label><select id="oMachine"></select></div><div class="filter"><label for="oProduct">Product</label><select id="oProduct"></select></div><div class="filter"><label for="oShift">Shift</label><select id="oShift"></select></div><div class="filter"><label for="oSize">Order size</label><select id="oSize"><option value="ALL">All sizes</option><option value="Q1">Q1 - Small</option><option value="Q2">Q2</option><option value="Q3">Q3</option><option value="Q4">Q4 - Large</option></select></div><div class="filter"><label for="oStatus">MES ↔ Excel</label><select id="oStatus"><option value="ALL">All orders</option><option value="MATCHED">Matched</option><option value="LE5">Matched ≤5%</option><option value="GT5">Matched >5%</option><option value="MES_ONLY">MES only</option><option value="EXCEL_ONLY">Excel only</option></select></div><div class="filter"><label for="oFrom">From date</label><input type="date" id="oFrom"></div><div class="filter"><label for="oTo">To date</label><input type="date" id="oTo"></div><button class="btn" id="oReset">Reset</button><div class="filter-summary" id="oSummary"></div>
+</div></div>
+<div class="kpis" id="opsKPIs"></div>
+<div class="section-title"><h2>Business focus: data trust → lost capacity → root cause → productivity</h2><div class="note">Use these five panels for the 5-minute operations story.</div></div>
+<div class="grid">
+<div class="panel"><h3>1. MES vs Operator Excel - source coverage & quantity reliability</h3><div class="desc">Are the two systems describing the same orders, and do matched quantities agree?</div><div class="svgchart" id="cCoverage"></div><div class="meta" id="mCoverage"></div><div class="scroll"><table><thead><tr><th>Order</th><th>Line</th><th class="num">MES qty</th><th class="num">Excel qty</th><th class="num">Variance</th></tr></thead><tbody id="tQty"></tbody></table></div><div class="validation" id="vCoverage"></div></div>
+<div class="panel"><h3>2. Production delay & lost production time</h3><div class="desc">Compares actual MES usage time with the theoretical run time needed for the produced quantity, then splits the recorded time.</div><div class="svgchart small" id="cTimeSplit"></div><div class="meta" id="mDelay"></div><div class="scroll"><table><thead><tr><th>Order</th><th>Line</th><th class="num">Actual h</th><th class="num">Std h</th><th class="num">Loss h</th><th class="num">Avail.</th></tr></thead><tbody id="tDelay"></tbody></table></div><div class="validation" id="vDelay"></div></div>
+<div class="panel"><h3>3. Stoppage / root-cause Pareto</h3><div class="desc">Prioritises the type-1 MES disturbance reasons consuming the most recorded time in the selected orders.</div><div class="svgchart" id="cPareto"></div><div class="meta" id="mPareto"></div><div class="validation" id="vPareto"></div></div>
+<div class="panel"><h3>4. Disturbance intensity vs throughput</h3><div class="desc">Tests whether more disturbance minutes per usage hour are associated with lower gross production rate.</div><div class="svgchart" id="cCorr"></div><div class="meta" id="mCorr"></div><div class="validation" id="vCorr"></div></div>
+<div class="panel full"><h3>5. Order size & staffing productivity - where scheduling and headcount interact</h3><div class="desc">Large/small batches and staffing levels are compared using normalized throughput and units per employee-hour; this is evidence for planning, not a causal staffing rule.</div><div class="split"><div><div class="svgchart small" id="cSize"></div></div><div><div class="svgchart small" id="cStaff"></div></div></div><div class="meta" id="mDrivers"></div><div class="validation" id="vDrivers"></div></div>
+</div>
+<div class="section-title"><h2>What management can prevent</h2><div class="note">Dynamic actions based on the current filter context.</div></div><div class="action-grid" id="opsActions"></div>
+</section>
+
+<section id="energy" class="view">
+<div class="filters-wrap"><div class="filters">
+<div class="filter"><label for="eMeter">Energy meter / component</label><select id="eMeter"></select></div><div class="filter"><label for="eProduct">Product (allocated orders)</label><select id="eProduct"></select></div><div class="filter"><label for="eSize">Order size</label><select id="eSize"><option value="ALL">All sizes</option><option value="Q1">Q1 - Small</option><option value="Q2">Q2</option><option value="Q3">Q3</option><option value="Q4">Q4 - Large</option></select></div><div class="filter"><label for="eFrom">From date</label><input type="date" id="eFrom"></div><div class="filter"><label for="eTo">To date</label><input type="date" id="eTo"></div><div class="filter"><label for="tariff">Electricity tariff €/kWh</label><input type="number" id="tariff" min="0" step="0.01" value="0.30"></div><div class="filter"><label for="lineCost">Line cost €/h</label><input type="number" id="lineCost" min="0" step="10" value="500"></div><button class="btn" id="eReset">Reset</button><div class="filter-summary" id="eSummary"></div>
+</div></div>
+<div class="kpis" id="energyKPIs"></div>
+<div class="section-title"><h2>Business focus: energy consumed without proportional output</h2><div class="note">Energy is calculated from cumulative meter deltas; never by summing Total Energy Passed.</div></div>
+<div class="grid">
+<div class="panel"><h3>1. Energy consumption trend</h3><div class="desc">Calendar-day consumption from valid meter deltas. Date and meter filters apply; product and order-size filters apply only to allocated-order panels.</div><div class="svgchart" id="cEnergyTrend"></div><div class="meta" id="mEnergyTrend"></div><div class="validation" id="vEnergyTrend"></div></div>
+<div class="panel"><h3>2. Energy by KM1 machine component</h3><div class="desc">Five physical meters are canonicalized even though the raw asset tag naming changes in August.</div><div class="svgchart" id="cMeter"></div><div class="meta" id="mMeter"></div><div class="validation" id="vMeter"></div></div>
+<div class="panel"><h3>3. Order-window vs mapped disturbance vs idle/unallocated energy</h3><div class="desc">All five meters, selected calendar dates: order-window, disturbance and unallocated energy. Product, size and meter selections do not change this line-level breakdown.</div><div class="svgchart small" id="cEnergyState"></div><div class="meta" id="mEnergyState"></div><div class="validation" id="vEnergyState"></div></div>
+<div class="panel"><h3>4. Production output vs energy intensity</h3><div class="desc">Order-level allocated kWh is normalized by produced units; high-intensity low-throughput orders are management exceptions.</div><div class="svgchart" id="cEnergyScatter"></div><div class="scroll"><table><thead><tr><th>Order</th><th>Product</th><th class="num">kWh</th><th class="num">Units</th><th class="num">kWh/1k</th></tr></thead><tbody id="tEnergyOrders"></tbody></table></div><div class="validation" id="vEnergyScatter"></div></div>
+<div class="panel full"><h3>5. Processing-cost exposure - scenario, not source-system cost</h3><div class="desc">Uses operator-recorded cleaning, setup/changeover, packaging-handling and disturbance minutes. True packaging material cost is not available in the source data.</div><div class="split"><div class="svgchart small" id="cProcessCost"></div><div><div class="meta" id="mProcessCost"></div><div class="scenario-card"><div class="small">Scenario exposure for selected KM1 orders</div><div class="big" id="processCostBig">-</div><div class="small" id="processCostSmall"></div></div><div class="callout" style="margin-top:10px"><b>Packaging cost limitation:</b> the files contain packaging-handling minutes (<i>Packmittel bereit / zurück</i>) but no packaging material price/BOM. The dashboard therefore shows packaging-handling <b>process cost exposure</b>, not material cost per unit.</div></div></div><div class="validation" id="vProcessCost"></div></div>
+</div>
+</section>
+
+<section id="calc" class="view">
+<div class="filters-wrap"><div class="filters"><div class="filter wide"><label for="traceOrder">Trace production order</label><select id="traceOrder"></select></div><div class="filter"><label for="qtyThreshold">Qty exception threshold %</label><input type="number" id="qtyThreshold" value="5" min="0" step="0.5"></div><div class="filter"><label for="timeThreshold">Start-time threshold min</label><input type="number" id="timeThreshold" value="30" min="0" step="5"></div><button class="btn" id="calcRefresh">Refresh trace</button><div class="filter-summary">This page traces the supplied dashboard dataset and documents its source-field relationships.</div></div></div>
+<div class="section-title"><h2>Reproducible count validation</h2><div class="note">Counts are recalculated from the loaded order records.</div></div>
+<div class="grid"><div class="panel"><h3>MES 2026 order population</h3><div id="mesCountFormula" class="formula">MES Orders = DISTINCTCOUNT( normalized mes_production_periods_2026[OrderNo] )\nExclude blank/null keys\nResult = <b>430</b></div><div class="validation">The MES count intentionally uses production-period facts because the question is which orders actually appear in 2026 execution data, not which orders exist in the master table.</div></div><div class="panel"><h3>Operator Excel order population & intersection</h3><div id="excelCountFormula" class="formula">Excel Orders = DISTINCTCOUNT( normalized excl_production_data_2026[Auftragskarte Nr.] ) = <b>398</b>\nMatched = MES set ∩ Excel set = <b>263</b>\nMES only = 430 - 263 = <b>167</b>\nExcel only = 398 - 263 = <b>135</b>\nUnion = 430 + 398 - 263 = <b>565</b></div><div class="validation">Normalization: convert to text, trim whitespace, remove numeric “.0” artefacts, exclude blank/null.</div></div></div>
+<div class="section-title"><h2>Selected-order calculation trace</h2><div class="note">Use this during Q&A to validate a chart back to order-level inputs.</div></div>
+<div class="grid"><div class="panel"><h3>MES / Excel trace</h3><div id="traceOps"></div></div><div class="panel"><h3>Energy allocation trace</h3><div id="traceEnergy"></div></div></div>
+<div class="section-title"><h2>Calculation dictionary & data-quality controls</h2></div><div class="grid"><div class="panel"><h3>Core KPI formulas</h3><div id="formulaList"></div></div><div class="panel"><h3>Validation checks found in the current data</h3><div id="qualityTable"></div></div></div>
+<div class="section-title"><h2>Recommended Power BI semantic model</h2><div class="note">Updated for the 1.42M-row energy fact and canonical meter alias mapping.</div></div><div class="panel full"><img class="diagram" alt="Recommended Power BI semantic model and source relationships" src="public/semantic-model.png"><div class="model-note">Energy relationship correction: raw <b>energy_meter_device_asset_tag</b> contains both historical Weidmueller names and later IFD00x meter names. Both aliases must map to one canonical DimEnergyMeter key before calculating deltas.</div></div>
+<div class="section-title"><h2>End-to-end workflow</h2></div><div class="panel full"><img class="diagram" alt="End-to-end production and energy data workflow" src="public/data-workflow.png"></div>
+</section>
+<div class="footer">BBMED Production Data Challenge · Integrated insight dashboard · Source: cleaned 2026 MES / operator Excel / ERP / staffing / stoppage files + updated KM1 energy data</div>
+</div>
+<script src="app.js" defer></script></body></html>

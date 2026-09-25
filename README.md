@@ -1,127 +1,67 @@
-# BBMED Packaging Operations Intelligence
+# BBMED Final Dynamic Insight Dashboard
 
-Dependency-free analysis dashboard for the BBMED Production Data Challenge. It combines the supplied 2026 MES production periods, stoppages, staffing links, manual Excel production, ERP product data, rejects, and the KM1 energy pilot into a responsive browser dashboard.
+The main page at `/` is the supplied **BBMED_Final_Dynamic_Insight_Dashboard** design, integrated into this static project. The previous dashboard UI has been replaced.
 
-## What is included
+## Active application
 
-- **Management Overview** — output, target achievement, availability, non-production time, labor productivity, reconciliation and the top five capacity-review orders.
-- **MES vs Excel** — all matched and MES-only orders, global Excel-only records, quantities, timestamps, elapsed durations and exception status (±5% quantity / 60-minute time thresholds).
-- **Production Delays** — target-rate runtime versus usage time, overrun proxies and monthly, daily and recorded-shift non-production trends.
-- **Stoppage Causes** — filtered reason Pareto and disturbance counts; technical/organizational period totals; separate operator-reported setup, cleaning and changeover totals.
-- **Staffing** — weighted actual headcount, units per labor hour, recorded-shift productivity and order investigation signals.
-- **Production Efficiency** — ordered/produced quantities, recorded rejects, cycles, targets and small/medium/large batch comparisons.
-- **Packaging Cost** — available pack-size attributes and explicit missing-cost inputs. No invented packaging costs or cost rankings.
-- **Energy Monitoring** — consecutive meter deltas, sampling-rate-adjusted trends, component contribution, candidate peaks and estimated time-overlap order allocation.
-- **Data Quality / Sources & Model** — coverage controls, source inventory, relationships and KPI definitions.
+- `index.html` — the new three-page dashboard: Operations & Data Reliability, Energy & Processing Cost, and Calculation / Validation / Model.
+- `app.js` — the new dashboard's filters, SVG charts, scenario inputs, order traces and asynchronous data loading.
+- `styles.css` — the supplied design with accessibility and mobile containment fixes.
+- `data/dashboard.json` — schema 3: `operations`, `energy`, and import provenance metadata.
+- `public/semantic-model.png`, `public/data-workflow.png` — the supplied relationship/workflow diagrams, extracted from embedded images.
+- `reference/BBMED_Final_Dynamic_Insight_Dashboard.html` — unchanged supplied original, retained as the auditable data snapshot.
 
-## Architecture
+There are no npm dependencies, external chart services or runtime database connections. The browser loads the local JSON dataset and PNG assets.
 
-This repository deliberately uses **static HTML + CSS + JavaScript** for the deployed dashboard. There is no runtime database and no npm dependency. The browser reads `data/dashboard.json` (~1.5 MB), which contains order-level and aggregate data built from the Excel source files.
+## Preview
 
-The original cleaned workbooks remain in `source-data/` for auditability and reproducibility. They are excluded from Vercel deployment with `.vercelignore`, so the deployed website stays small.
+```bash
+python -m http.server 8080 --bind 127.0.0.1
+```
 
-`reference/` contains the supplied dashboard prototypes, KPI Python script and research report for traceability. It is also excluded from Vercel.
+Open `http://127.0.0.1:8080/`. Use an HTTP server, since the application fetches JSON; opening `index.html` directly as a local file will show a loading error.
 
-## Data build / reproducibility
-
-To rebuild the compact dashboard dataset after replacing or updating the workbooks:
+## Data build
 
 ```bash
 python scripts/build_dashboard_data.py
 ```
 
-The ETL uses Python's standard library only. It aggregates 2026 production periods to order grain, joins stoppages and rejects by `WorkRecordID`, reconciles manual Excel production after order-level aggregation, enriches product attributes from ERP, and calculates the KM1 meter deltas from cumulative readings.
+The default build imports the embedded `D` and `EN` data from the preserved final dashboard snapshot. It validates normalized order uniqueness, reconciliation and meter relationships, and energy totals, then writes the current JSON schema. This preserves the supplied expanded energy dataset (1,417,704 source rows; 8,426.286 kWh; 80 allocated KM1 orders).
 
-Important definitions:
-
-- Gross rate = Produced units / Usage minutes.
-- Availability proxy = Production time / Usage time.
-- Performance = Produced units / theoretical output from target rate × production time.
-- Quality proxy = Produced / (Produced + recorded rejects). Reject coverage is sparse, so this is explicitly provisional.
-- OEE proxy = Availability × Performance × Quality.
-- Disturbance minutes = MES type-1 stoppage time joined by WorkRecordID.
-- MES↔Excel quantity variance = (MES quantity − Excel quantity) / Excel quantity.
-- Energy = sum of valid consecutive reading differences per meter. Negative differences are treated as resets; invalid readings and conflicting duplicate timestamps break the chain and are counted. Identical duplicate readings are deduplicated. The source does **not** document the physical unit, so the deployed UI calls these "meter units", not kWh.
-
-## Local preview
-
-Because the dashboard loads JSON with `fetch()`, serve it through a local HTTP server rather than opening `index.html` directly:
+**This command imports the supplied dashboard calculations; it does not independently reprocess the 1.42M raw meter readings.** The updated workbook is retained at `source-data/21.update_energy_data.xlsx`. Editing a workbook alone does not refresh this snapshot. To import a newer compatible dashboard export, run:
 
 ```bash
-python -m http.server 8080
+python scripts/build_dashboard_data.py --source /path/to/new-dashboard-export.html
 ```
 
-Then open `http://localhost:8080`.
+The supplied export remains the authority for the calculations, canonical meter aliases, timestamp allocations and kWh confirmation. `meta.sourceSha256` identifies the exact imported HTML file. Raw workbooks and source hashes remain available for audit.
 
-## Deploy to Vercel
+## Relationships and filter scope
 
-1. Create a GitHub repository and push this folder.
-2. In Vercel choose **Add New → Project** and import the GitHub repository.
-3. Framework preset: **Other** (static site).
-4. Build command: leave empty.
-5. Output directory: leave empty / repository root.
-6. Deploy.
+- Normalized order keys link the 565-order MES/Excel union, 263 comparisons, manual loss records and MES reason records.
+- 80 KM1 energy orders link to the order union; their `meter_kwh` keys link to the five canonical energy meters.
+- `daily_meter` supports calendar-date/meter consumption charts; `daily` supports whole-line allocation/disturbance/idle percentages.
+- Operations date filters select complete orders by `order_date`; machine/product/shift are order-level attributes.
+- Energy product and size filters select allocated orders. Their date filter selects complete orders by order date; it does not clip their energy or output to midnight boundaries.
+- Energy daily charts use calendar dates and meter selection, retaining all products. State percentages always use **all five meters** and the selected calendar dates because meter-level state breakdowns are not supplied.
+- Processing costs use manual minutes for selected whole orders. Meter selection does not change those minutes. Electricity tariff and line-hour cost are user-entered scenarios, not booked financial costs.
 
-`vercel.json` adds basic security headers and caching for the compact JSON dataset.
+The UI makes these differing scopes explicit. Pareto totals and cumulative shares use all selected reasons, even when only the top eight are drawn. Missing percentages/correlations are not converted into zero observations.
 
-## Repository structure
+## Legacy analysis
 
-```text
-index.html                 Static application shell
-styles.css                 Responsive desktop/mobile design
-app.js                     Navigation, filters and shared rendering
-analytics.js               Eight management workstream views
-data/dashboard.json        Precomputed real dashboard dataset
-scripts/build_dashboard_data.py
-source-data/*.xlsx         Original 20 cleaned source workbooks
-reference/                 Supplied prototypes/report/script
-vercel.json
-.vercelignore
-README.md
-```
-
-## Validation snapshot
-
-The generated data currently resolves to:
-
-- 430 MES 2026 orders
-- 398 manual Excel orders
-- 263 matched MES↔Excel orders
-- 11,632,839 produced units
-- 16,280.2 usage hours
-- median gross rate 14.19 units/min
-- median availability proxy 42.4%
-- median performance 90.7%
-- median OEE proxy 38.6%
-- 59.7% of matched orders within ±1% quantity
-- 87.1% within ±5%
-- energy window 3.49 hours across five KM1 meters
-- total cumulative meter delta 11.22696 raw meter units
-
-These values are produced by `scripts/build_dashboard_data.py` from the committed Excel files; they are not hard-coded dashboard samples.
-
-## Known limitations
-
-The repository preserves the limitations found in the supplied research: incomplete shift data, unresolved personnel IDs, sparse product density, sparse reject capture, mixed stoppage taxonomy, and an energy pilot whose physical unit is not documented. The dashboard avoids converting these limitations into unsupported precision or savings claims.
-
-## Interpretation and filter scope
-
-Filters select full orders by their primary machine/product and dominant recorded shift. Period charts additionally restrict the selected periods to the chosen machine/product/shift. They do not reconstruct full-order totals for a single shift. Excel-only records, Energy Monitoring, Data Quality and Sources use explicit global scopes.
-
-Expected runtime is `TargetQuantity / TargetProductionRatePerMinute`, available for 275 of the supplied 430 MES orders. It is a **target-rate proxy**, not a validated production plan or due-date adherence metric. Non-production hours use positive period-level usage minus production differences. These hours overlap stoppage losses and must not be added to them. Stoppage events use the source `stoppage_count`; reason records may overlap in time.
-
-Manual Excel end times earlier than the same row's start time roll into the next day. Reconciliation duration is first start to last end, including gaps; it is not summed labor or running time. Order normalization trims whitespace, normalizes case and canonicalizes integral numeric keys.
-
-Energy allocation divides each valid meter interval among uniquely overlapping KM1 orders, assuming constant consumption within that interval. Gaps or competing orders remain unallocated. Full production-period output cannot be divided into the shorter pilot window without another assumption, so energy per unit and output/energy scatter remain unavailable. kWh and energy cost require verified meter units and a tariff; idle energy requires validated machine-state intervals. The pilot is not a product-efficiency ranking.
-
-Packaging costs, planned staffing, complete good/scrap quantities and schedule adherence remain unavailable where inputs are absent. Manual setup/cleaning/changeover totals are separate from MES losses, with blanks treated as no recorded time. No causal staffing or financial savings claim is made.
+The earlier workbook ETL is retained as `scripts/build_legacy_dashboard_data.py`; it writes **only** `reference/legacy-dashboard.json`. It cannot overwrite the live dashboard schema. Its helper functions and regression tests remain available for auditing the previous short energy pilot. The old `analytics.js` has been removed, and neither the old UI nor the pilot dataset is loaded by the current page.
 
 ## Checks
 
 ```bash
 python -m unittest discover -s tests -v
 node --check app.js
-node --check analytics.js
 ```
 
-The tests cover meter resets, invalid and duplicate samples, normalized order IDs, ambiguous/gapped allocation, allocation conservation and the supplied reconciliation totals. Browser verification covers all tabs, machine filtering, reset, empty states and desktop/mobile overflow.
+Tests cover snapshot reproducibility, active asset references, order/meter relationships and energy totals, plus the legacy meter-delta/allocation checks. Browser checks cover tabs, filters, resets, tariff changes, order traces, diagrams and mobile layout.
+
+## Vercel
+
+Deploy as a static project (Framework: Other; project root output; no build command required since the generated JSON is committed). `index.html` is the entry point. `vercel.json` retains security headers, requires data revalidation, and redirects both forms of the old long dashboard URL to `/`. `.vercelignore` excludes source workbooks, reference snapshots, scripts and tests from deployment. No deployment is performed by the integration or data-build scripts.
