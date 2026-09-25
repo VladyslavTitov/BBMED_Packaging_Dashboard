@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict, Counter
 from datetime import datetime, timedelta
 from pathlib import Path
+from dashboard_metrics import normalize_order, meter_intervals, allocate_energy
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "source-data"
@@ -187,11 +188,14 @@ for r in iter_xlsx(SRC/FILES["erp"]):
     products[code]={"density":density,"fill":r.get("FillUpVolume") or "","unitsBox":fnum(r.get("UnitsInBox"),None),"unitsPallet":fnum(r.get("UnitsOnPallet"),None)}
 
 # -------- 2026 production periods aggregated to order --------
+planned={normalize_order(r["OrderNumber"]): r for r in iter_xlsx(SRC/FILES["orders"])}
+km1_periods=[]
+period_groups=defaultdict(lambda: {"usageHours":0, "productionHours":0, "produced":0, "employeeHours":0, "technicalMin":0, "organizationalMin":0})
 orders=defaultdict(lambda:{"workRecords":set(),"machineSec":defaultdict(float),"productSec":defaultdict(float),"shifts":Counter(),"usageSec":0.0,"prodSec":0.0,"produced":0.0,"theoretical":0.0,"employeeHours":0.0,"starts":[],"ends":[]})
 wr_to_order={}
 wr_machine={}
 for r in iter_xlsx(SRC/FILES["periods_2026"]):
-    order=txt(r.get("OrderNo")); wr=txt(r.get("WorkRecordID")); machine=txt(r.get("MachineID")); product=txt(r.get("ProductID")); shift=txt(r.get("Shift"))
+    order=normalize_order(r.get("OrderNo")); wr=txt(r.get("WorkRecordID")); machine=txt(r.get("MachineID")); product=txt(r.get("ProductID")); shift=txt(r.get("Shift"))
     if not order: continue
     usage=fnum(r.get("CalcUsageTime")); prod=fnum(r.get("CalcProductionTime")); produced=fnum(r.get("ProducedDuringThePeriod")); target=fnum(r.get("TargetUnitsPerMinute")); workers=fnum(r.get("WorkerCount"))
     o=orders[order]; o["workRecords"].add(wr); o["usageSec"]+=usage; o["prodSec"]+=prod; o["produced"]+=produced; o["theoretical"]+=target*prod/60; o["employeeHours"]+=workers*usage/3600
@@ -201,6 +205,12 @@ for r in iter_xlsx(SRC/FILES["periods_2026"]):
     except: pass
     try: en=datetime.fromisoformat(str(r.get("PointEnd")).replace(".000","")); o["ends"].append(en)
     except: pass
+    if machine=="KM1":
+        period_start=excel_dt(r.get("PointStart")); period_end=excel_dt(r.get("PointEnd"))
+        if period_start and period_end and period_end>period_start: km1_periods.append((period_start,period_end,order))
+    day=str(r.get("PointStart", ""))[:10]
+    pg=period_groups[(order,machine,product,shift or "Unknown",day)]
+    for key,value in {"usageHours":usage/3600,"productionHours":prod/3600,"produced":produced,"employeeHours":workers*usage/3600,"technicalMin":fnum(r.get("StoppageTimeTechnic"))/60,"organizationalMin":fnum(r.get("StoppageTimeOrganiz"))/60}.items(): pg[key]+=value
     wr_to_order[wr]=order; wr_machine[wr]=machine
 
 # rejects by order
@@ -210,6 +220,7 @@ for r in iter_xlsx(SRC/FILES["rejects"]):
     if wr in wr_to_order: reject_by_order[wr_to_order[wr]] += q
 
 # type-1 stoppage by order/reason
+stop_details=[]
 stop_by_order=defaultdict(float); stop_reason_order=defaultdict(lambda:defaultdict(float)); stop_reason_total=defaultdict(float); stop_reason_count=defaultdict(int)
 for r in iter_xlsx(SRC/FILES["stoppages"]):
     wr=txt(r.get("work_record_id")); order=wr_to_order.get(wr)
@@ -217,19 +228,25 @@ for r in iter_xlsx(SRC/FILES["stoppages"]):
     secs=fnum(r.get("stoppage_time")); no=txt(r.get("stoppage_no")); machine=wr_machine.get(wr,"")
     group="2" if machine.startswith("AXO") else "1"
     label=reason_lookup.get(f"{group}|{no}", f"Reason {no}")
+    stop_details.append({"order":order,"reason":label,"minutes":round(secs/60,4),"events":fnum(r.get("stoppage_count"),None),"machine":machine})
     stop_by_order[order]+=secs; stop_reason_order[order][label]+=secs; stop_reason_total[label]+=secs; stop_reason_count[label]+=1
 
 # Excel manual production aggregated by order
-excel_orders=defaultdict(lambda:{"qty":0.0,"scrap":0.0,"starts":[],"ends":[],"rows":0,"products":Counter()})
+excel_orders=defaultdict(lambda:{"qty":0.0,"scrap":0.0,"starts":[],"ends":[],"rows":0,"products":Counter(),"cleaningMin":0,"setupMin":0,"changeoverMin":0})
 for r in iter_xlsx(SRC/FILES["excel_prod"]):
-    order=txt(r.get("Auftragskarte Nr."));
+    order=normalize_order(r.get("Auftragskarte Nr."));
     if not order: continue
     x=excel_orders[order]; x["rows"]+=1; x["qty"]+=fnum(r.get("Stückzahl")); x["scrap"]+=fnum(r.get("Ausschuss (Stück)")); x["products"][txt(r.get("Artikelnummer"))]+=1
+    x["cleaningMin"]+=fnum(r.get("Reinigung (Min.)"))
+    x["setupMin"]+=fnum(r.get("Maschine einrichten (Min.)"))
+    x["changeoverMin"]+=fnum(r.get("Maschine umrüsten (Min.)"))+sum(fnum(r.get(f"Wechsel {i} (Min.)")) for i in [1,2,3])
     d=excel_dt(r.get("Datum")); bt=excel_dt(r.get("Beginn")); et=excel_dt(r.get("Ende"))
     if d and bt:
         st=datetime(d.year,d.month,d.day)+timedelta(days=(bt-datetime(1899,12,30)).total_seconds()/86400 % 1); x["starts"].append(st)
     if d and et:
-        en=datetime(d.year,d.month,d.day)+timedelta(days=(et-datetime(1899,12,30)).total_seconds()/86400 % 1); x["ends"].append(en)
+        en=datetime(d.year,d.month,d.day)+timedelta(days=(et-datetime(1899,12,30)).total_seconds()/86400 % 1)
+        if bt and en < st: en += timedelta(days=1)
+        x["ends"].append(en)
 
 # finalize order records
 records=[]
@@ -261,7 +278,16 @@ for order,o in orders.items():
     top_reason=None
     if stop_reason_order.get(order):
         top_reason=max(stop_reason_order[order], key=stop_reason_order[order].get)
+    plan=planned.get(order,{})
+    target_qty=fnum(plan.get("TargetQuantity"),None)
+    target_rate=fnum(plan.get("TargetProductionRatePerMinute"),None)
+    planned_min=target_qty/target_rate if target_qty and target_rate and target_rate>0 else None
     records.append({
+        "orderedQty":target_qty,"targetRate":target_rate,"plannedRunMin":planned_min,
+        "excelStart":iso(xstart),"excelEnd":iso(xend),
+        "manualCleaningMin":xo["cleaningMin"] if xo else None,"manualSetupMin":xo["setupMin"] if xo else None,"manualChangeoverMin":xo["changeoverMin"] if xo else None,
+        "endGapMin":abs((end-xend).total_seconds())/60 if end and xend else None,
+        "unitsBox":products.get(product,{}).get("unitsBox"),
         "order":order,"machine":machine,"product":product,"shift":o["shifts"].most_common(1)[0][0] if o["shifts"] else "Unknown",
         "start":iso(start),"end":iso(end),"usageHours":round(usage_h,4),"productionHours":round(prod_h,4),"produced":round(o["produced"]),
         "grossRate":round(rate,3) if rate is not None else None,"netRunRate":round(net_rate,3) if net_rate is not None else None,
@@ -282,8 +308,9 @@ for i,r in enumerate(positive):
 for r in records:
     if "sizeQuartile" not in r:r["sizeQuartile"]="Q1"
     if r["excelQty"] is None:r["matchStatus"]="UNMATCHED"
-    elif abs(r["qtyDeltaPct"])<=1:r["matchStatus"]="LE1"
-    elif abs(r["qtyDeltaPct"])<=5:r["matchStatus"]="LE5"
+    elif r["qtyDeltaPct"] is None:r["matchStatus"]="UNDEFINED"
+    elif r["qtyDeltaPct"] is not None and abs(r["qtyDeltaPct"])<=1:r["matchStatus"]="LE1"
+    elif r["qtyDeltaPct"] is not None and abs(r["qtyDeltaPct"])<=5:r["matchStatus"]="LE5"
     else:r["matchStatus"]="GT5"
 
 records.sort(key=lambda r:(r["machine"],r["order"]))
@@ -301,7 +328,7 @@ for m in sorted(set(r["machine"] for r in valid)):
     rr=[r for r in valid if r["machine"]==m]; mm=[r for r in rr if r["excelQty"] is not None]
     machine_summary.append({
         "machine":m,"orders":len(rr),"produced":round(sum(r["produced"] for r in rr)),"medianRate":round(median([r["grossRate"] for r in rr]),2),"medianAvailability":round(median([r["availability"] for r in rr]),2),"medianOee":round(median([r["oee"] for r in rr]),2),
-        "matched":len(mm),"within1Pct":round(pct(sum(abs(r["qtyDeltaPct"])<=1 for r in mm),len(mm)),1) if mm else None,"within5Pct":round(pct(sum(abs(r["qtyDeltaPct"])<=5 for r in mm),len(mm)),1) if mm else None,
+        "matched":len(mm),"within1Pct":round(pct(sum(r["qtyDeltaPct"] is not None and abs(r["qtyDeltaPct"])<=1 for r in mm),len(mm)),1) if mm else None,"within5Pct":round(pct(sum(r["qtyDeltaPct"] is not None and abs(r["qtyDeltaPct"])<=5 for r in mm),len(mm)),1) if mm else None,
     })
 
 # stoppage pareto
@@ -319,16 +346,20 @@ for r in iter_xlsx(SRC/FILES["energy"]):
     d=excel_dt(r["Timestamp (Date)"]); t=excel_dt(r["Timestamp (Time)"])
     if not d or not t: continue
     dt=datetime(d.year,d.month,d.day)+timedelta(days=(t-datetime(1899,12,30)).total_seconds()/86400 % 1)
-    energy_by_meter[meter].append((dt,fnum(r["Total Energy Passed (unit unspecified)"])))
-energy_components=[]; all_ts=[]
+    energy_by_meter[meter].append((dt,fnum(r["Total Energy Passed (unit unspecified)"],None)))
+energy_components=[]; all_ts=[]; energy_intervals=[]; energy_issues=0
 for meter,arr in energy_by_meter.items():
     arr.sort(); all_ts += [x[0] for x in arr]
-    delta=arr[-1][1]-arr[0][1] if len(arr)>1 else 0
+    intervals,issues=meter_intervals(arr)
+    energy_issues+=issues
+    energy_intervals.extend(dict(x,meter=meter) for x in intervals)
+    delta=sum(x["delta"] for x in intervals)
     mm=meter_map.get(meter,{})
     energy_components.append({"meter":meter,"component":mm.get("component",meter),"line":mm.get("line","KM1"),"readings":len(arr),"first":iso(arr[0][0]),"last":iso(arr[-1][0]),"delta":round(delta,5)})
 energy_components.sort(key=lambda x:x["delta"],reverse=True)
 total_energy=sum(x["delta"] for x in energy_components)
 for x in energy_components:x["sharePct"]=round(100*x["delta"]/total_energy,1) if total_energy else 0
+allocated_energy,unallocated_energy=allocate_energy(energy_intervals,km1_periods)
 energy_window_hours=(max(all_ts)-min(all_ts)).total_seconds()/3600 if all_ts else 0
 
 # source inventory with dimensions and columns (skip parsing full large files)
@@ -356,8 +387,8 @@ summary={
     "mesOrders":len(records),"excelOrders":len(excel_orders),"matchedOrders":len(matched),
     "totalProduced":round(sum(r["produced"] for r in valid)),"usageHours":round(sum(r["usageHours"] for r in valid),1),"productionHours":round(sum(r["productionHours"] for r in valid),1),
     "medianGrossRate":round(median([r["grossRate"] for r in valid]),2),"medianAvailability":round(median([r["availability"] for r in valid]),1),"medianPerformance":round(median([r["performance"] for r in valid]),1),"medianOee":round(median([r["oee"] for r in valid]),1),
-    "within1Pct":round(pct(sum(abs(r["qtyDeltaPct"])<=1 for r in matched),len(matched)),1),"within5Pct":round(pct(sum(abs(r["qtyDeltaPct"])<=5 for r in matched),len(matched)),1),
-    "medianAbsQtyGap":round(median([abs(r["qtyDeltaPct"]) for r in matched]),2),"medianStartGapMin":round(median([r["startGapMin"] for r in matched]),1),
+    "within1Pct":round(pct(sum(r["qtyDeltaPct"] is not None and abs(r["qtyDeltaPct"])<=1 for r in matched),len(matched)),1),"within5Pct":round(pct(sum(r["qtyDeltaPct"] is not None and abs(r["qtyDeltaPct"])<=5 for r in matched),len(matched)),1),
+    "medianAbsQtyGap":round(median([abs(r["qtyDeltaPct"]) for r in matched if r["qtyDeltaPct"] is not None]),2),"medianStartGapMin":round(median([r["startGapMin"] for r in matched]),1),
     "corrDisturbanceRate":round(pearson([r["disturbanceIntensity"] for r in valid],[r["grossRate"] for r in valid]),3),"corrWorkersRate":round(pearson([r["avgWorkers"] for r in valid],[r["grossRate"] for r in valid]),3),
     "energyWindowHours":round(energy_window_hours,2),"energyMeters":len(energy_components),"energyDelta":round(total_energy,5),
 }
@@ -371,10 +402,13 @@ quality={
 }
 
 payload={
-    "meta":{"title":"BBMED Packaging Operations Intelligence","generatedAt":datetime.now().isoformat(timespec="seconds"),"scope":"2026 production operations + KM1 energy pilot","method":"Precomputed from supplied cleaned Excel workbooks. Dashboard runtime uses this compact JSON; original workbooks are retained in source-data/."},
-    "summary":summary,"orders":records,"machineSummary":machine_summary,"sizeSummary":size_summary,"stoppageReasons":reasons,"energy":{"components":energy_components,"totalDelta":round(total_energy,5),"windowHours":round(energy_window_hours,3),"unit":"raw meter units (unit metadata not supplied)"},"quality":quality,"sources":source_inventory,
+    "meta":{"schemaVersion":2,"title":"BBMED Packaging Operations Intelligence","generatedAt":datetime.now().isoformat(timespec="seconds"),"scope":"2026 production operations + KM1 energy pilot","method":"Precomputed from supplied cleaned Excel workbooks. Dashboard runtime uses this compact JSON; original workbooks are retained in source-data/."},
+    "periods":[dict(v,order=k[0],machine=k[1],product=k[2],shift=k[3],day=k[4]) for k,v in period_groups.items()],
+    "stoppages":stop_details,
+    "excelOnly":[{"order":k,"produced":v["qty"],"product":v["products"].most_common(1)[0][0],"start":iso(min(v["starts"])) if v["starts"] else None,"end":iso(max(v["ends"])) if v["ends"] else None} for k,v in excel_orders.items() if k not in orders],
+    "summary":summary,"orders":records,"machineSummary":machine_summary,"sizeSummary":size_summary,"stoppageReasons":reasons,"energy":{"orderAllocation":[{"order":k,"delta":round(v,8)} for k,v in allocated_energy.items()],"unallocatedDelta":round(unallocated_energy,8),"intervals":energy_intervals,"invalidIntervals":energy_issues,"components":energy_components,"totalDelta":round(total_energy,5),"windowHours":round(energy_window_hours,3),"unit":"raw meter units (unit metadata not supplied)"},"quality":quality,"sources":source_inventory,
     "definitions":{
-        "grossRate":"Produced units / usage minutes","availability":"Production seconds / usage seconds (proxy)","performance":"Produced units / sum(TargetUnitsPerMinute × production minutes)","quality":"Produced / (Produced + recorded rejects); sparse reject records mean this is a proxy","oee":"Availability × Performance × Quality (proxy)","disturbance":"Type-1 MES stoppages joined by WorkRecordID","reconciliation":"MES order totals vs manual Excel order totals","energy":"Cumulative last minus first reading by meter; raw meter unit is unspecified"
+        "expectedRuntime":"Ordered quantity / order-master target rate; not a validated schedule. Runtime overrun = max(usage minutes − expected runtime, 0)","lostHours":"Sum of max(period usage hours − period production hours, 0); overlaps stoppage measures", "laborProductivity":"Produced units / sum(WorkerCount × usage hours); staffing coverage incomplete", "matchRate":"Matched orders / selected MES orders; Excel-only counts remain global", "energyAllocation":"Consecutive meter deltas distributed to unique order timestamp overlaps, assuming constant consumption inside each meter interval; gaps and ambiguous overlaps remain unallocated", "packagingCost":"Unavailable: requires packaging consumption and effective unit prices", "grossRate":"Produced units / usage minutes","availability":"Production seconds / usage seconds (proxy)","performance":"Produced units / sum(TargetUnitsPerMinute × production minutes)","quality":"Produced / (Produced + recorded rejects); sparse reject records mean this is a proxy","oee":"Availability × Performance × Quality (proxy)","disturbance":"Type-1 MES stoppages joined by WorkRecordID","reconciliation":"MES order totals vs manual Excel order totals","energy":"Sum of valid consecutive deltas per meter; negative resets and conflicting/invalid samples excluded and counted. Raw unit unspecified"
     }
 }
 OUT.parent.mkdir(parents=True,exist_ok=True)

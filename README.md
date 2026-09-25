@@ -1,18 +1,22 @@
 # BBMED Packaging Operations Intelligence
 
-Production-ready, dependency-free dashboard for the BBMED Production Data Challenge. It combines the supplied 2026 MES production periods, stoppages, staffing links, manual Excel production, ERP product data, rejects, and the KM1 energy pilot into a responsive browser dashboard.
+Dependency-free analysis dashboard for the BBMED Production Data Challenge. It combines the supplied 2026 MES production periods, stoppages, staffing links, manual Excel production, ERP product data, rejects, and the KM1 energy pilot into a responsive browser dashboard.
 
 ## What is included
 
-- **Executive Overview** — produced units, gross rate, availability/performance/OEE proxies, MES↔Excel consistency, order-size pattern and stoppage signal.
-- **Operations** — staffing, disturbance intensity, OEE proxy, top disturbance orders and reconciliation detail.
-- **Energy Pilot** — exact cumulative meter deltas from the supplied five KM1 meters, with explicit limitations because the energy unit is not documented and the observation window is only ~3.49 hours.
-- **Data Quality** — shift, personnel, density, energy-metadata and reconciliation controls.
-- **Sources & Model** — all 20 source tables, row counts, main columns, role, relationships and KPI definitions.
+- **Management Overview** — output, target achievement, availability, non-production time, labor productivity, reconciliation and the top five capacity-review orders.
+- **MES vs Excel** — all matched and MES-only orders, global Excel-only records, quantities, timestamps, elapsed durations and exception status (±5% quantity / 60-minute time thresholds).
+- **Production Delays** — target-rate runtime versus usage time, overrun proxies and monthly, daily and recorded-shift non-production trends.
+- **Stoppage Causes** — filtered reason Pareto and disturbance counts; technical/organizational period totals; separate operator-reported setup, cleaning and changeover totals.
+- **Staffing** — weighted actual headcount, units per labor hour, recorded-shift productivity and order investigation signals.
+- **Production Efficiency** — ordered/produced quantities, recorded rejects, cycles, targets and small/medium/large batch comparisons.
+- **Packaging Cost** — available pack-size attributes and explicit missing-cost inputs. No invented packaging costs or cost rankings.
+- **Energy Monitoring** — consecutive meter deltas, sampling-rate-adjusted trends, component contribution, candidate peaks and estimated time-overlap order allocation.
+- **Data Quality / Sources & Model** — coverage controls, source inventory, relationships and KPI definitions.
 
 ## Architecture
 
-This repository deliberately uses **static HTML + CSS + JavaScript** for the deployed dashboard. There is no runtime database and no npm dependency. The browser reads `data/dashboard.json` (~300 KB), which contains order-level and aggregate data built from the Excel source files.
+This repository deliberately uses **static HTML + CSS + JavaScript** for the deployed dashboard. There is no runtime database and no npm dependency. The browser reads `data/dashboard.json` (~1.5 MB), which contains order-level and aggregate data built from the Excel source files.
 
 The original cleaned workbooks remain in `source-data/` for auditability and reproducibility. They are excluded from Vercel deployment with `.vercelignore`, so the deployed website stays small.
 
@@ -37,7 +41,7 @@ Important definitions:
 - OEE proxy = Availability × Performance × Quality.
 - Disturbance minutes = MES type-1 stoppage time joined by WorkRecordID.
 - MES↔Excel quantity variance = (MES quantity − Excel quantity) / Excel quantity.
-- Energy = last cumulative meter reading − first cumulative meter reading in the supplied window. The source does **not** document the physical unit, so the deployed UI calls these "meter units", not kWh.
+- Energy = sum of valid consecutive reading differences per meter. Negative differences are treated as resets; invalid readings and conflicting duplicate timestamps break the chain and are counted. Identical duplicate readings are deduplicated. The source does **not** document the physical unit, so the deployed UI calls these "meter units", not kWh.
 
 ## Local preview
 
@@ -65,7 +69,8 @@ Then open `http://localhost:8080`.
 ```text
 index.html                 Static application shell
 styles.css                 Responsive desktop/mobile design
-app.js                     Filters, KPIs, SVG charts and tables
+app.js                     Navigation, filters and shared rendering
+analytics.js               Eight management workstream views
 data/dashboard.json        Precomputed real dashboard dataset
 scripts/build_dashboard_data.py
 source-data/*.xlsx         Original 20 cleaned source workbooks
@@ -98,3 +103,25 @@ These values are produced by `scripts/build_dashboard_data.py` from the committe
 ## Known limitations
 
 The repository preserves the limitations found in the supplied research: incomplete shift data, unresolved personnel IDs, sparse product density, sparse reject capture, mixed stoppage taxonomy, and an energy pilot whose physical unit is not documented. The dashboard avoids converting these limitations into unsupported precision or savings claims.
+
+## Interpretation and filter scope
+
+Filters select full orders by their primary machine/product and dominant recorded shift. Period charts additionally restrict the selected periods to the chosen machine/product/shift. They do not reconstruct full-order totals for a single shift. Excel-only records, Energy Monitoring, Data Quality and Sources use explicit global scopes.
+
+Expected runtime is `TargetQuantity / TargetProductionRatePerMinute`, available for 275 of the supplied 430 MES orders. It is a **target-rate proxy**, not a validated production plan or due-date adherence metric. Non-production hours use positive period-level usage minus production differences. These hours overlap stoppage losses and must not be added to them. Stoppage events use the source `stoppage_count`; reason records may overlap in time.
+
+Manual Excel end times earlier than the same row's start time roll into the next day. Reconciliation duration is first start to last end, including gaps; it is not summed labor or running time. Order normalization trims whitespace, normalizes case and canonicalizes integral numeric keys.
+
+Energy allocation divides each valid meter interval among uniquely overlapping KM1 orders, assuming constant consumption within that interval. Gaps or competing orders remain unallocated. Full production-period output cannot be divided into the shorter pilot window without another assumption, so energy per unit and output/energy scatter remain unavailable. kWh and energy cost require verified meter units and a tariff; idle energy requires validated machine-state intervals. The pilot is not a product-efficiency ranking.
+
+Packaging costs, planned staffing, complete good/scrap quantities and schedule adherence remain unavailable where inputs are absent. Manual setup/cleaning/changeover totals are separate from MES losses, with blanks treated as no recorded time. No causal staffing or financial savings claim is made.
+
+## Checks
+
+```bash
+python -m unittest discover -s tests -v
+node --check app.js
+node --check analytics.js
+```
+
+The tests cover meter resets, invalid and duplicate samples, normalized order IDs, ambiguous/gapped allocation, allocation conservation and the supplied reconciliation totals. Browser verification covers all tabs, machine filtering, reset, empty states and desktop/mobile overflow.

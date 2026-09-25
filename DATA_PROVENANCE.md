@@ -18,3 +18,12 @@ The production model uses the following relationship backbone:
 The physical unit of `Total Energy Passed` is unspecified in the supplied workbook. Therefore the dashboard reports raw meter units and does not assert kWh or energy cost.
 
 File integrity hashes are in `source-data/SHA256SUMS.txt`.
+
+## Additional transformations
+
+- Order-master `TargetQuantity` and `TargetProductionRatePerMinute` provide expected running minutes, not a scheduled production duration.
+- Production periods are also aggregated by order, machine, product, recorded shift and date for time/labor trends; unknown shifts remain unknown.
+- `stoppage_count` provides disturbance counts; minutes and event counts are retained per order/reason for filtered Pareto analysis.
+- Operator `Reinigung`, `Maschine einrichten`, `Maschine umrüsten` and `Wechsel 1–3` fields supply separate reported loss totals; these may overlap MES losses.
+- Consecutive meter intervals reject resets and invalid/conflicting readings. Energy is allocated by unique KM1 order timestamp overlap under a constant-rate-within-interval assumption; no production output or state is inferred.
+- Packaging pack sizes are available; packaging material quantities, prices and monetary costs are not supplied.
