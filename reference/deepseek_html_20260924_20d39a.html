@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BBMED Packaging Dashboard – KM1</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --card:#273449; --line:#334155;
+    --txt:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8;
+    --good:#22c55e; --warn:#f59e0b; --bad:#ef4444; --purple:#a78bfa;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',Roboto,Arial,sans-serif;padding:18px}
+  h1{font-size:22px;font-weight:600;margin-bottom:2px}
+  h2{font-size:15px;font-weight:600;color:var(--accent);margin:18px 0 8px}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:14px}
+  .filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+  .filters select,.filters input{background:var(--panel);color:var(--txt);border:1px solid var(--line);
+    border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer}
+  .filters select:hover{border-color:var(--accent)}
+  .filters button{background:var(--accent);color:#0f172a;border:none;border-radius:6px;
+    padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer}
+  .filters button:hover{opacity:.85}
+  .active-filter{background:var(--card);border:1px solid var(--line);border-radius:6px;
+    padding:6px 10px;font-size:11px;color:var(--muted)}
+  .active-filter b{color:var(--accent)}
+  .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;position:relative}
+  .kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .kpi .value{font-size:24px;font-weight:700;margin-top:6px}
+  .kpi .unit{font-size:12px;color:var(--muted);margin-left:4px}
+  .kpi .delta{font-size:11px;margin-top:4px}
+  .kpi.good{border-left:3px solid var(--good)}
+  .kpi.warn{border-left:3px solid var(--warn)}
+  .kpi.bad{border-left:3px solid var(--bad)}
+  .kpi.accent{border-left:3px solid var(--accent)}
+  .kpi.purple{border-left:3px solid var(--purple)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin-bottom:18px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .panel h3{font-size:13px;font-weight:600;color:var(--txt);margin-bottom:10px}
+  canvas{max-height:220px}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+  th{background:#0b1220;color:var(--muted);text-align:left;padding:7px 8px;font-weight:600;
+     text-transform:uppercase;font-size:10px;letter-spacing:.4px}
+  td{padding:6px 8px;border-top:1px solid var(--line)}
+  tr:hover td{background:#1a2538}
+  .pill{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600}
+  .pill.good{background:#064e3b;color:#6ee7b7}
+  .pill.warn{background:#78350f;color:#fcd34d}
+  .pill.bad{background:#7f1d1d;color:#fca5a5}
+  .pill.info{background:#0c4a6e;color:#7dd3fc}
+  .empty{color:var(--muted);font-style:italic;padding:16px;text-align:center}
+  .footer{margin-top:20px;font-size:10px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+
+<h1>BBMED Packaging Dashboard</h1>
+<div class="sub">Data sources: MES · Excel production list · ERP · Machine energy · Cleaned 2026</div>
+
+<!-- ============ FILTERS ============ -->
+<div class="filters">
+  <select id="fLine">
+    <option value="ALL">All lines</option>
+    <option value="KM1" selected>KM1</option>
+    <option value="KM2">KM2</option>
+    <option value="AXO10">AXO10</option>
+  </select>
+
+  <select id="fProduct">
+    <option value="ALL">All products</option>
+  </select>
+
+  <select id="fShift">
+    <option value="ALL">All shifts</option>
+    <option value="F">F</option>
+    <option value="S">S</option>
+  </select>
+
+  <select id="fDate">
+    <option value="ALL">All dates</option>
+  </select>
+
+  <button id="btnReset">Reset filters</button>
+  <span class="active-filter" id="filterSummary">Showing: <b>KM1</b></span>
+</div>
+
+<!-- ============ KPI CARDS ============ -->
+<h2>Key Performance Indicators</h2>
+<div class="kpi-row" id="kpiRow"></div>
+
+<!-- ============ CHARTS ============ -->
+<h2>Energy Analysis</h2>
+<div class="grid">
+  <div class="panel"><h3>Energy by machine (kWh)</h3><canvas id="chartEnergyMachine"></canvas></div>
+  <div class="panel"><h3>Energy by hour (kWh)</h3><canvas id="chartEnergyHour"></canvas></div>
+  <div class="panel"><h3>Density vs energy per unit</h3><canvas id="chartDensity"></canvas></div>
+</div>
+
+<h2>Production &amp; Stoppages</h2>
+<div class="grid">
+  <div class="panel"><h3>OEE components by order</h3><canvas id="chartOEE"></canvas></div>
+  <div class="panel"><h3>Stoppage Pareto (minutes)</h3><canvas id="chartPareto"></canvas></div>
+  <div class="panel"><h3>Staffing vs throughput</h3><canvas id="chartStaffing"></canvas></div>
+</div>
+
+<h2>Data Quality</h2>
+<div class="grid">
+  <div class="panel"><h3>MES vs Excel quantity variance by order</h3><canvas id="chartVariance"></canvas></div>
+  <div class="panel"><h3>Energy per 1,000 units over time</h3><canvas id="chartEnergyPerUnit"></canvas></div>
+</div>
+
+<!-- ============ TABLES ============ -->
+<h2>Order-level KPI table</h2>
+<div class="panel"><table id="tblOrders">
+  <thead><tr>
+    <th>Order</th><th>Line</th><th>Product</th><th>Good units</th><th>Energy (kWh)</th>
+    <th>kWh / 1k units</th><th>OEE</th><th>Stoppage min</th><th>MA</th><th>Status</th>
+  </tr></thead><tbody></tbody>
+</table></div>
+
+<h2>Data-quality table</h2>
+<div class="panel"><table id="tblQuality">
+  <thead><tr><th>Check</th><th>Count</th><th>Severity</th><th>Action</th></tr></thead>
+  <tbody></tbody>
+</table></div>
+
+<h2>Product-group table</h2>
+<div class="panel"><table id="tblProducts">
+  <thead><tr><th>Density group</th><th>Orders</th><th>Avg kWh / 1k units</th>
+  <th>Avg stoppage min</th><th>Reliability</th></tr></thead><tbody></tbody>
+</table></div>
+
+<div class="footer">BBMED Production Data Challenge · Interactive dashboard</div>
+
+<script>
+// ============================================================
+// MASTER DATA — every record carries line, product, shift, date
+// ============================================================
+
+// MACHINES (from dw_energy_meter_x_machine)
+const machines = [
+  {id:'IFD001',name:'falschacht',line:'KM1'},
+  {id:'IFD002',name:'etikket',line:'KM1'},
+  {id:'IFD003',name:'verschr',line:'KM1'},
+  {id:'IFD004',name:'abf',line:'KM1'},
+  {id:'IFD005',name:'Flaschenbeschicker',line:'KM1'}
+];
+
+// ENERGY READINGS (from dw_energy_readers_data)
+const energyReadings = [
+  // KM1 sample — 2026-09-23
+  {meter:'IFD001',line:'KM1',timestamp:'2026-09-23T14:26:40',energy:2.9689,delta:0.0,hour:'14:00',date:'2026-09-23'},
+  {meter:'IFD002',line:'KM1',timestamp:'2026-09-23T14:26:40',energy:0.4000,delta:0.0,hour:'14:00',date:'2026-09-23'},
+  {meter:'IFD003',line:'KM1',timestamp:'2026-09-23T14:26:40',energy:3.7779,delta:0.0,hour:'14:00',date:'2026-09-23'},
+  {meter:'IFD004',line:'KM1',timestamp:'2026-09-23T14:26:40',energy:2.4379,delta:0.0,hour:'14:00',date:'2026-09-23'},
+  {meter:'IFD005',line:'KM1',timestamp:'2026-09-23T14:26:40',energy:1.2479,delta:0.0,hour:'14:00',date:'2026-09-23'},
+
+  {meter:'IFD001',line:'KM1',timestamp:'2026-09-23T15:36:12',energy:2.9854,delta:0.0165,hour:'15:00',date:'2026-09-23'},
+  {meter:'IFD002',line:'KM1',timestamp:'2026-09-23T15:36:12',energy:0.4100,delta:0.0100,hour:'15:00',date:'2026-09-23'},
+  {meter:'IFD003',line:'KM1',timestamp:'2026-09-23T15:36:12',energy:3.8003,delta:0.0224,hour:'15:00',date:'2026-09-23'},
+  {meter:'IFD004',line:'KM1',timestamp:'2026-09-23T15:36:12',energy:2.4528,delta:0.0149,hour:'15:00',date:'2026-09-23'},
+  {meter:'IFD005',line:'KM1',timestamp:'2026-09-23T15:36:12',energy:1.2590,delta:0.0111,hour:'15:00',date:'2026-09-23'},
+
+  {meter:'IFD001',line:'KM1',timestamp:'2026-09-23T16:30:32',energy:2.9950,delta:0.0096,hour:'16:00',date:'2026-09-23'},
+  {meter:'IFD002',line:'KM1',timestamp:'2026-09-23T16:30:32',energy:0.4185,delta:0.0085,hour:'16:00',date:'2026-09-23'},
+  {meter:'IFD003',line:'KM1',timestamp:'2026-09-23T16:30:32',energy:3.8199,delta:0.0196,hour:'16:00',date:'2026-09-23'},
+  {meter:'IFD004',line:'KM1',timestamp:'2026-09-23T16:30:32',energy:2.4689,delta:0.0161,hour:'16:00',date:'2026-09-23'},
+  {meter:'IFD005',line:'KM1',timestamp:'2026-09-23T16:30:32',energy:1.2702,delta:0.0112,hour:'16:00',date:'2026-09-23'},
+
+  {meter:'IFD001',line:'KM1',timestamp:'2026-09-23T17:56:18',energy:2.9910,delta:-0.0040,hour:'17:00',date:'2026-09-23'},
+  {meter:'IFD002',line:'KM1',timestamp:'2026-09-23T17:56:18',energy:0.4290,delta:0.0105,hour:'17:00',date:'2026-09-23'},
+  {meter:'IFD003',line:'KM1',timestamp:'2026-09-23T17:56:18',energy:3.8811,delta:0.0612,hour:'17:00',date:'2026-09-23'},
+  {meter:'IFD004',line:'KM1',timestamp:'2026-09-23T17:56:18',energy:2.5859,delta:0.1170,hour:'17:00',date:'2026-09-23'},
+  {meter:'IFD005',line:'KM1',timestamp:'2026-09-23T17:56:18',energy:1.3080,delta:0.0378,hour:'17:00',date:'2026-09-23'},
+
+  // KM2 sample — same day, different line
+  {meter:'IFD006',line:'KM2',timestamp:'2026-09-23T15:36:12',energy:5.2100,delta:0.0230,hour:'15:00',date:'2026-09-23'},
+  {meter:'IFD006',line:'KM2',timestamp:'2026-09-23T16:30:32',energy:5.2450,delta:0.0350,hour:'16:00',date:'2026-09-23'},
+  {meter:'IFD006',line:'KM2',timestamp:'2026-09-23T17:56:18',energy:5.2900,delta:0.0450,hour:'17:00',date:'2026-09-23'},
+
+  // AXO10 sample
+  {meter:'AXO01',line:'AXO10',timestamp:'2026-09-23T15:36:12',energy:1.8400,delta:0.0090,hour:'15:00',date:'2026-09-23'},
+  {meter:'AXO01',line:'AXO10',timestamp:'2026-09-23T16:30:32',energy:1.8650,delta:0.0250,hour:'16:00',date:'2026-09-23'},
+  {meter:'AXO01',line:'AXO10',timestamp:'2026-09-23T17:56:18',energy:1.8900,delta:0.0250,hour:'17:00',date:'2026-09-23'}
+];
+
+// ORDERS (from excl_production_data_2026 + mes_cycle_data)
+const orders = [
+  {o:'700089',line:'KM1',p:'10269202061-1',good:4704,energy:1.85,oee:74,stop:42,ma:3,shift:'F',date:'2026-09-23',density:1.03,variance:-1.2},
+  {o:'700966',line:'KM1',p:'10269202085-1',good:10416,energy:2.12,oee:78,stop:38,ma:4,shift:'F',date:'2026-09-23',density:1.04,variance:0.8},
+  {o:'701008',line:'KM1',p:'10269202202',good:8046,energy:2.05,oee:71,stop:55,ma:6,shift:'S',date:'2026-09-23',density:1.01,variance:-2.1},
+  {o:'700955',line:'KM1',p:'10269203073-4',good:15066,energy:1.68,oee:82,stop:25,ma:4,shift:'F',date:'2026-09-23',density:1.00,variance:1.4},
+  {o:'701010',line:'KM1',p:'10269202204',good:4599,energy:1.42,oee:69,stop:60,ma:6,shift:'S',date:'2026-09-23',density:1.03,variance:-3.0},
+  {o:'701470',line:'KM1',p:'10269202085-1',good:12744,energy:2.31,oee:76,stop:44,ma:4,shift:'F',date:'2026-09-23',density:1.04,variance:0.5},
+  {o:'700174',line:'KM1',p:'10269202025-4',good:8976,energy:1.55,oee:80,stop:30,ma:4,shift:'S',date:'2026-09-23',density:1.02,variance:-0.9},
+
+  // KM2 orders
+  {o:'700200',line:'KM2',p:'10269202061-1',good:6200,energy:2.90,oee:70,stop:50,ma:4,shift:'F',date:'2026-09-23',density:1.03,variance:1.1},
+  {o:'700210',line:'KM2',p:'10269202087',good:8400,energy:3.40,oee:73,stop:46,ma:5,shift:'S',date:'2026-09-23',density:1.02,variance:-1.5},
+
+  // AXO10 orders
+  {o:'701190',line:'AXO10',p:'13258203002',good:8500,energy:1.85,oee:76,stop:35,ma:3,shift:'F',date:'2026-09-23',density:1.05,variance:0.4},
+  {o:'701086',line:'AXO10',p:'13258203039',good:9200,energy:1.90,oee:79,stop:28,ma:4,shift:'S',date:'2026-09-23',density:1.04,variance:-0.7}
+];
+
+// STOPPAGES
+const stoppages = [
+  {line:'KM1',reason:'Verschraubung',min:320},
+  {line:'KM1',reason:'Maschineneinstellung',min:410},
+  {line:'KM1',reason:'Etiketten',min:180},
+  {line:'KM1',reason:'Bulk',min:95},
+  {line:'KM1',reason:'Folie',min:75},
+  {line:'KM1',reason:'Etikettensitz',min:55},
+  {line:'KM1',reason:'Füllmenge',min:30},
+  {line:'KM2',reason:'Verschraubung',min:210},
+  {line:'KM2',reason:'Maschineneinstellung',min:150},
+  {line:'KM2',reason:'Etiketten',min:90},
+  {line:'AXO10',reason:'Folienlauf',min:120},
+  {line:'AXO10',reason:'Maschineneinstellung',min:90},
+  {line:'AXO10',reason:'Papierstau',min:40}
+];
+
+// QUALITY CHECKS
+const qualityChecks = [
+  {line:'KM1',check:'Negative energy deltas',count:1,sev:'warn',act:'Investigate meter reset'},
+  {line:'KM1',check:'Time gaps > 5 min',count:2,sev:'warn',act:'Investigate meter comms'},
+  {line:'KM1',check:'Missing ERP density',count:142,sev:'warn',act:'Enrich master data'},
+  {line:'KM1',check:'MES/Excel qty mismatch',count:5,sev:'warn',act:'Validate orders'},
+  {line:'KM1',check:'Invalid timestamps',count:0,sev:'good',act:'None'},
+  {line:'KM1',check:'Unmapped meters',count:0,sev:'good',act:'None'},
+  {line:'KM2',check:'Negative energy deltas',count:0,sev:'good',act:'None'},
+  {line:'KM2',check:'Time gaps > 5 min',count:1,sev:'warn',act:'Investigate'},
+  {line:'AXO10',check:'Negative energy deltas',count:0,sev:'good',act:'None'},
+  {line:'AXO10',check:'Time gaps > 5 min',count:0,sev:'good',act:'None'}
+];
+
+// PRODUCT GROUPS
+const productGroups = [
+  {line:'KM1',g:'0.95 – 1.00 g/ml',n:38,energy:3.42,stop:36,rel:'High'},
+  {line:'KM1',g:'1.00 – 1.03 g/ml',n:52,energy:3.65,stop:42,rel:'High'},
+  {line:'KM1',g:'1.03 – 1.05 g/ml',n:21,energy:3.88,stop:48,rel:'Medium'},
+  {line:'KM1',g:'> 1.05 g/ml',n:6,energy:4.15,stop:55,rel:'Low'},
+  {line:'KM2',g:'1.00 – 1.03 g/ml',n:14,energy:4.10,stop:52,rel:'Medium'},
+  {line:'AXO10',g:'1.03 – 1.05 g/ml',n:9,energy:3.20,stop:40,rel:'Medium'}
+];
+
+// ============================================================
+// STATE
+// ============================================================
+const state = {line:'KM1', product:'ALL', shift:'ALL', date:'ALL'};
+const charts = {};
+
+// ============================================================
+// FILTER HELPERS
+// ============================================================
+function filterReadings(){
+  return energyReadings.filter(r =>
+    (state.line==='ALL' || r.line===state.line) &&
+    (state.date==='ALL' || r.date===state.date)
+  );
+}
+function filterOrders(){
+  return orders.filter(o =>
+    (state.line==='ALL' || o.line===state.line) &&
+    (state.product==='ALL' || o.p===state.product) &&
+    (state.shift==='ALL' || o.shift===state.shift) &&
+    (state.date==='ALL' || o.date===state.date)
+  );
+}
+function filterStoppages(){
+  return stoppages.filter(s => state.line==='ALL' || s.line===state.line);
+}
+function filterQuality(){
+  return qualityChecks.filter(q => state.line==='ALL' || q.line===state.line);
+}
+function filterProductGroups(){
+  return productGroups.filter(p => state.line==='ALL' || p.line===state.line);
+}
+
+// ============================================================
+// POPULATE PRODUCT DROPDOWN from data
+// ============================================================
+function populateProducts(){
+  const sel = document.getElementById('fProduct');
+  const products = [...new Set(orders.map(o=>o.p))].sort();
+  sel.innerHTML = '<option value="ALL">All products</option>' +
+    products.map(p=>`<option value="${p}">${p}</option>`).join('');
+}
+
+// ============================================================
+// RENDER KPIs
+// ============================================================
+function renderKPIs(){
+  const r = filterReadings();
+  const o = filterOrders();
+
+  const totalEnergy = r.reduce((s,x)=>s+x.delta,0);
+  const totalGood   = o.reduce((s,x)=>s+x.good,0);
+  const totalStopp  = o.reduce((s,x)=>s+x.stop,0);
+  const avgOEE      = o.length ? o.reduce((s,x)=>s+x.oee,0)/o.length : 0;
+  const kwhPerK     = totalGood ? (totalEnergy/(totalGood/1000)) : 0;
+  const stoppPerHr  = o.length ? (totalStopp/(o.length*8)) : 0; // 8h shift
+  const maHours     = o.reduce((s,x)=>s+x.ma*8,0);
+  const unitsPerMA  = maHours ? (totalGood/maHours) : 0;
+  const variance    = o.length ? o.reduce((s,x)=>s+x.variance,0)/o.length : 0;
+  const scrapRate   = 1.8; // static placeholder
+
+  document.getElementById('kpiRow').innerHTML = `
+    <div class="kpi accent">
+      <div class="label">Energy per 1,000 good units</div>
+      <div class="value">${kwhPerK.toFixed(2)}<span class="unit">kWh</span></div>
+      <div class="delta" style="color:var(--muted)">${state.line} · ${o.length} orders</div>
+    </div>
+    <div class="kpi good">
+      <div class="label">OEE</div>
+      <div class="value">${avgOEE.toFixed(1)}<span class="unit">%</span></div>
+      <div class="delta" style="color:var(--good)">avg across filtered orders</div>
+    </div>
+    <div class="kpi warn">
+      <div class="label">Total energy</div>
+      <div class="value">${totalEnergy.toFixed(2)}<span class="unit">kWh</span></div>
+      <div class="delta" style="color:var(--muted)">${r.length} readings</div>
+    </div>
+    <div class="kpi bad">
+      <div class="label">Scrap rate</div>
+      <div class="value">${scrapRate.toFixed(1)}<span class="unit">%</span></div>
+      <div class="delta" style="color:var(--muted)">placeholder</div>
+    </div>
+    <div class="kpi purple">
+      <div class="label">Stoppage min / prod. hour</div>
+      <div class="value">${stoppPerHr.toFixed(1)}<span class="unit">min</span></div>
+      <div class="delta" style="color:var(--muted)">filtered orders</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Avg power</div>
+      <div class="value">${(totalEnergy/3.5).toFixed(2)}<span class="unit">kW</span></div>
+      <div class="delta" style="color:var(--muted)">est. 3.5 h</div>
+    </div>
+    <div class="kpi">
+      <div class="label">MES vs Excel variance</div>
+      <div class="value">${variance.toFixed(1)}<span class="unit">%</span></div>
+      <div class="delta" style="color:var(--muted)">avg</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Units / employee-hour</div>
+      <div class="value">${unitsPerMA.toFixed(0)}<span class="unit">u/h</span></div>
+      <div class="delta" style="color:var(--muted)">filtered</div>
+    </div>
+  `;
+}
+
+// ============================================================
+// CHART HELPER
+// ============================================================
+function makeChart(id, config){
+  if(charts[id]) charts[id].destroy();
+  const ctx = document.getElementById(id);
+  if(!ctx) return;
+  charts[id] = new Chart(ctx, config);
+}
+
+// ============================================================
+// RENDER CHARTS
+// ============================================================
+function renderCharts(){
+  const r = filterReadings();
+  const o = filterOrders();
+
+  // 1. Energy by machine
+  const byMachine = {};
+  r.forEach(x=>{ byMachine[x.meter]=(byMachine[x.meter]||0)+x.delta; });
+  const mKeys = Object.keys(byMachine);
+  const mNames = mKeys.map(k=>{
+    const m = machines.find(mm=>mm.id===k);
+    return m ? `${k} · ${m.name}` : k;
+  });
+
+  makeChart('chartEnergyMachine', {
+    type:'bar',
+    data:{
+      labels:mNames.length?mNames:['No data'],
+      datasets:[{
+        label:'kWh',
+        data:mKeys.length?mKeys.map(k=>byMachine[k]):[0],
+        backgroundColor:['#38bdf8','#22c55e','#a78bfa','#f59e0b','#ef4444','#06b6d4'],
+        borderRadius:5
+      }]
+    },
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+  });
+
+  // 2. Energy by hour
+  const byHour = {};
+  r.forEach(x=>{ byHour[x.hour]=(byHour[x.hour]||0)+x.delta; });
+  const hKeys = Object.keys(byHour).sort();
+
+  makeChart('chartEnergyHour', {
+    type:'line',
+    data:{
+      labels:hKeys.length?hKeys:['No data'],
+      datasets:[{
+        label:'kWh',
+        data:hKeys.length?hKeys.map(k=>byHour[k]):[0],
+        borderColor:'#38bdf8',
+        backgroundColor:'rgba(56,189,248,0.15)',
+        fill:true,tension:0.35,pointRadius:4
+      }]
+    },
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+  });
+
+  // 3. Density scatter
+  const dens = o.map(x=>({x:x.density, y:x.energy/(x.good/1000)}));
+
+  makeChart('chartDensity', {
+    type:'scatter',
+    data:{datasets:[{
+      label:'Orders',
+      data:dens.length?dens:[{x:1,y:0}],
+      backgroundColor:'#a78bfa',pointRadius:6
+    }]},
+    options:{
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{title:{display:true,text:'Density (g/ml)'}},
+        y:{title:{display:true,text:'kWh / 1k units'},beginAtZero:true}
+      }
+    }
+  });
+
+  // 4. OEE + stoppage
+  makeChart('chartOEE', {
+    type:'bar',
+    data:{
+      labels:o.length?o.map(x=>x.o):['No data'],
+      datasets:[
+        {label:'OEE %',data:o.length?o.map(x=>x.oee):[0],
+         backgroundColor:'#22c55e',borderRadius:4},
+        {label:'Stoppage min',data:o.length?o.map(x=>x.stop):[0],
+         backgroundColor:'#ef4444',borderRadius:4,yAxisID:'y1'}
+      ]
+    },
+    options:{
+      plugins:{legend:{position:'bottom'}},
+      scales:{
+        y:{beginAtZero:true,title:{display:true,text:'OEE %'}},
+        y1:{position:'right',beginAtZero:true,title:{display:true,text:'min'},
+            grid:{drawOnChartArea:false}}
+      }
+    }
+  });
+
+  // 5. Stoppage Pareto
+  const st = filterStoppages();
+  const stSorted = [...st].sort((a,b)=>b.min-a.min);
+
+  makeChart('chartPareto', {
+    type:'bar',
+    data:{
+      labels:stSorted.length?stSorted.map(x=>x.reason):['No data'],
+      datasets:[{
+        label:'Minutes',
+        data:stSorted.length?stSorted.map(x=>x.min):[0],
+        backgroundColor:'#f59e0b',borderRadius:4
+      }]
+    },
+    options:{indexAxis:'y',plugins:{legend:{display:false}},
+      scales:{x:{beginAtZero:true}}}
+  });
+
+  // 6. Staffing vs throughput
+  const staff = o.map(x=>({x:x.ma, y:x.good/8}));
+
+  makeChart('chartStaffing', {
+    type:'scatter',
+    data:{datasets:[{
+      label:'Orders',
+      data:staff.length?staff:[{x:0,y:0}],
+      backgroundColor:'#38bdf8',pointRadius:6
+    }]},
+    options:{
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{title:{display:true,text:'Employees (MA)'},beginAtZero:true},
+        y:{title:{display:true,text:'Units / hour'},beginAtZero:true}
+      }
+    }
+  });
+
+  // 7. Variance
+  makeChart('chartVariance', {
+    type:'bar',
+    data:{
+      labels:o.length?o.map(x=>x.o):['No data'],
+      datasets:[{
+        label:'MES − Excel %',
+        data:o.length?o.map(x=>x.variance):[0],
+        backgroundColor:o.length?o.map(x=>x.variance<0?'#ef4444':'#22c55e'):['#94a3b8'],
+        borderRadius:4
+      }]
+    },
+    options:{
+      plugins:{legend:{display:false}},
+      scales:{y:{beginAtZero:true,title:{display:true,text:'% difference'}}}
+    }
+  });
+
+  // 8. Energy per unit over time
+  const byHour2 = {};
+  r.forEach(x=>{
+    if(!byHour2[x.hour]) byHour2[x.hour]={energy:0,units:0};
+    byHour2[x.hour].energy += x.delta;
+  });
+  const h2 = Object.keys(byHour2).sort();
+  const epu = h2.map(k=>{
+    const totalUnits = o.reduce((s,x)=>s+x.good,0) / (h2.length||1);
+    return totalUnits ? byHour2[k].energy/(totalUnits/1000) : 0;
+  });
+
+  makeChart('chartEnergyPerUnit', {
+    type:'line',
+    data:{
+      labels:h2.length?h2:['No data'],
+      datasets:[{
+        label:'kWh / 1k units',
+        data:h2.length?epu:[0],
+        borderColor:'#a78bfa',
+        backgroundColor:'rgba(167,139,250,0.15)',
+        fill:true,tension:0.35,pointRadius:4
+      }]
+    },
+    options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+  });
+}
+
+// ============================================================
+// RENDER TABLES
+// ============================================================
+function renderTables(){
+  const o = filterOrders();
+
+  // Orders
+  const tb = document.querySelector('#tblOrders tbody');
+  tb.innerHTML = '';
+  if(!o.length){
+    tb.innerHTML = `<tr><td colspan="10" class="empty">No orders match the current filters.</td></tr>`;
+  } else {
+    o.forEach(x=>{
+      const kwhPerK = (x.energy/(x.good/1000)).toFixed(2);
+      const pill = x.oee >= 75
+        ? '<span class="pill good">On target</span>'
+        : x.oee >= 70
+          ? '<span class="pill warn">Watch</span>'
+          : '<span class="pill bad">Low</span>';
+      tb.insertAdjacentHTML('beforeend',`
+        <tr>
+          <td>${x.o}</td><td>${x.line}</td><td>${x.p}</td>
+          <td>${x.good.toLocaleString()}</td><td>${x.energy.toFixed(2)}</td>
+          <td>${kwhPerK}</td><td>${x.oee}%</td><td>${x.stop}</td>
+          <td>${x.ma}</td><td>${pill}</td>
+        </tr>`);
+    });
+  }
+
+  // Quality
+  const tq = document.querySelector('#tblQuality tbody');
+  tq.innerHTML = '';
+  const q = filterQuality();
+  if(!q.length){
+    tq.innerHTML = `<tr><td colspan="4" class="empty">No checks for this filter.</td></tr>`;
+  } else {
+    q.forEach(x=>{
+      tq.insertAdjacentHTML('beforeend',`
+        <tr>
+          <td>${x.check}</td><td>${x.count}</td>
+          <td><span class="pill ${x.sev}">${
+            x.sev==='good'?'OK':x.sev==='warn'?'Warning':'Critical'
+          }</span></td>
+          <td>${x.act}</td>
+        </tr>`);
+    });
+  }
+
+  // Products
+  const tp = document.querySelector('#tblProducts tbody');
+  tp.innerHTML = '';
+  const pg = filterProductGroups();
+  if(!pg.length){
+    tp.innerHTML = `<tr><td colspan="5" class="empty">No product groups for this filter.</td></tr>`;
+  } else {
+    pg.forEach(x=>{
+      const rel = x.rel==='High'?'good':x.rel==='Medium'?'warn':'bad';
+      tp.insertAdjacentHTML('beforeend',`
+        <tr>
+          <td>${x.g}</td><td>${x.n}</td><td>${x.energy.toFixed(2)}</td>
+          <td>${x.stop}</td><td><span class="pill ${rel}">${x.rel}</span></td>
+        </tr>`);
+    });
+  }
+}
+
+// ============================================================
+// SUMMARY
+// ============================================================
+function renderSummary(){
+  const parts = [];
+  parts.push(`<b>${state.line}</b>`);
+  if(state.product!=='ALL') parts.push(`product <b>${state.product}</b>`);
+  if(state.shift!=='ALL') parts.push(`shift <b>${state.shift}</b>`);
+  if(state.date!=='ALL') parts.push(`date <b>${state.date}</b>`);
+  document.getElementById('filterSummary').innerHTML = 'Showing: ' + parts.join(' · ');
+}
+
+// ============================================================
+// MASTER RENDER
+// ============================================================
+function renderAll(){
+  renderSummary();
+  renderKPIs();
+  renderCharts();
+  renderTables();
+}
+
+// ============================================================
+// EVENTS
+// ============================================================
+document.getElementById('fLine').addEventListener('change', e=>{
+  state.line = e.target.value;
+  // Reset product filter when line changes
+  state.product = 'ALL';
+  document.getElementById('fProduct').value = 'ALL';
+  renderAll();
+});
+document.getElementById('fProduct').addEventListener('change', e=>{
+  state.product = e.target.value;
+  renderAll();
+});
+document.getElementById('fShift').addEventListener('change', e=>{
+  state.shift = e.target.value;
+  renderAll();
+});
+document.getElementById('fDate').addEventListener('change', e=>{
+  state.date = e.target.value;
+  renderAll();
+});
+document.getElementById('btnReset').addEventListener('click', ()=>{
+  state.line='KM1'; state.product='ALL'; state.shift='ALL'; state.date='ALL';
+  document.getElementById('fLine').value='KM1';
+  document.getElementById('fProduct').value='ALL';
+  document.getElementById('fShift').value='ALL';
+  document.getElementById('fDate').value='ALL';
+  renderAll();
+});
+
+// ============================================================
+// INIT
+// ============================================================
+populateProducts();
+renderAll();
+</script>
+</body>
+</html>

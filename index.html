@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="description" content="BBMED packaging operations dashboard based on supplied cleaned production data."/>
+  <title>BBMED Packaging Operations Intelligence</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <main class="app">
+    <div class="top">
+      <div class="brand">
+        <h1>BBMED Packaging Operations Intelligence</h1>
+        <p>Production, stoppage, staffing, MES↔Excel reconciliation and KM1 energy pilot. All displayed metrics are calculated from the supplied cleaned Excel workbooks; no illustrative order data is used.</p>
+      </div>
+      <div class="badges" id="badges"></div>
+    </div>
+    <div class="guardrail"><span class="dot"></span><div><b>Interpretation guardrail:</b> Energy is a 3.49-hour KM1 pilot and the meter unit is not documented, so the dashboard deliberately avoids claiming kWh, annual savings, or product-level energy ranking. OEE is shown as a proxy because reject/quality coverage is incomplete.</div></div>
+    <nav class="tabs" id="tabs" aria-label="Dashboard sections"></nav>
+    <div class="filters-shell"><div class="filters" id="filters"></div></div>
+    <div id="view"><div class="panel"><div class="empty">Loading dashboard data…</div></div></div>
+    <div class="footer"><span>BBMED Production Data Challenge · deployable Vercel static dashboard</span><span id="generated"></span></div>
+  </main>
+<script src="app.js" defer></script>
+</body>
+</html>
